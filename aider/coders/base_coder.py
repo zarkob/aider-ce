@@ -1051,6 +1051,7 @@ class Coder:
             abs_read_only_fnames=self.abs_read_only_fnames,
             abs_read_only_stubs_fnames=self.abs_read_only_stubs_fnames,
             edit_format=edit_format,
+            coder=self,
         )
 
     def preproc_user_input(self, inp):

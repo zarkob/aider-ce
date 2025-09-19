@@ -3,6 +3,8 @@ import os
 import re
 import shutil
 import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 import tempfile
 from io import StringIO
 from pathlib import Path
@@ -12,6 +14,7 @@ import git
 import pyperclip
 
 from aider.coders import Coder
+from aider.coders.bmad_coder import BMADCoder
 from aider.commands import Commands, SwitchCoder
 from aider.dump import dump  # noqa: F401
 from aider.io import InputOutput
@@ -2305,3 +2308,121 @@ class TestCommands(TestCase):
             )
             self.assertEqual(new_coder.done_messages, [{"role": "user", "content": "d1"}])
             self.assertEqual(new_coder.cur_messages, [{"role": "user", "content": "c1"}])
+
+
+class TestBmadCommands(TestCase):
+    def setUp(self):
+        self.original_cwd = os.getcwd()
+        self.tempdir = tempfile.mkdtemp()
+        os.chdir(self.tempdir)
+        self.GPT35 = Model("gpt-3.5-turbo")
+        make_repo()
+        self.io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        self.repo = GitRepo(self.io, [], None)
+
+    def tearDown(self):
+        os.chdir(self.original_cwd)
+        shutil.rmtree(self.tempdir, ignore_errors=True)
+
+    def test_cmd_bmad_init(self):
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        # We need a repo for bmad
+        coder = Coder.create(self.GPT35, None, io, repo=self.repo)
+        commands = coder.commands
+
+        # Mock the confirm_ask to always return True
+        with mock.patch.object(io, "confirm_ask", return_value=True):
+            # First call to /bmad will switch the coder
+            with self.assertRaises(SwitchCoder) as cm:
+                commands.cmd_bmad("init")
+
+            # Create the new coder
+            coder = Coder.create(from_coder=coder, **cm.exception.kwargs)
+            commands.coder = coder
+
+            self.assertEqual(cm.exception.placeholder, "/bmad init")
+
+            # Call init again now that we are in the right coder
+            commands.cmd_bmad("init")
+
+        # Check if .bmad-core directory is created
+        self.assertTrue(os.path.exists(os.path.join(coder.root, ".bmad-core")))
+
+    def test_cmd_bmad_agent(self):
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        coder = Coder.create(self.GPT35, None, io, repo=self.repo)
+        commands = coder.commands
+
+        with mock.patch.object(io, "confirm_ask", return_value=True):
+            with self.assertRaises(SwitchCoder):
+                commands.cmd_bmad("agent")
+
+            # Create the new coder
+            coder = Coder.create(from_coder=coder, edit_format="bmad")
+            commands.coder = coder
+
+            # Install bmad core
+            commands.cmd_bmad("init")
+
+        # List agents
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("agent")
+            self.assertGreater(mock_tool_output.call_count, 1)
+
+        # Switch agent
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("agent pm")
+            mock_tool_output.assert_called_with("Switched to agent: pm")
+            self.assertEqual(coder.active_agent_name, "pm")
+            self.assertIsNotNone(coder.active_agent_persona)
+
+        # Non-existent agent
+        with mock.patch.object(io, "tool_error") as mock_tool_error:
+            commands.cmd_bmad("agent non_existent_agent")
+            mock_tool_error.assert_called_with("Agent 'non_existent_agent' not found.")
+
+    def test_cmd_bmad_workflow_and_status(self):
+        io = InputOutput(pretty=False, fancy_input=False, yes=True)
+        coder = Coder.create(self.GPT35, None, io, repo=self.repo)
+        commands = coder.commands
+
+        with mock.patch.object(io, "confirm_ask", return_value=True):
+            with self.assertRaises(SwitchCoder):
+                commands.cmd_bmad("workflow")
+
+            # Create the new coder
+            coder = Coder.create(from_coder=coder, edit_format="bmad")
+            commands.coder = coder
+
+            # Install bmad core
+            commands.cmd_bmad("init")
+
+        # Status without workflow
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("status")
+            mock_tool_output.assert_any_call("No active BMAD workflow.")
+
+        # List workflows
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("workflow")
+            self.assertGreater(mock_tool_output.call_count, 1)
+
+        # Start workflow
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("workflow greenfield-service")
+            mock_tool_output.assert_any_call("Started workflow: Greenfield Service/API Development")
+            self.assertIsNotNone(coder.active_workflow)
+            self.assertEqual(coder.active_agent_name, "analyst")
+            self.assertEqual(coder.active_task, "create project-brief.md")
+            self.assertEqual(coder.active_phase, None)
+
+        # Status with workflow
+        with mock.patch.object(io, "tool_output") as mock_tool_output:
+            commands.cmd_bmad("status")
+            mock_tool_output.assert_any_call("BMAD Status:")
+            mock_tool_output.assert_any_call(
+                "  Workflow: Greenfield Service/API Development"
+            )
+            mock_tool_output.assert_any_call("  Agent: analyst")
+            mock_tool_output.assert_any_call("  Task: create project-brief.md")
+            mock_tool_output.assert_any_call("  Phase: N/A")

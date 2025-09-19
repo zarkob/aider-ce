@@ -23,7 +23,7 @@ from aider.repo import ANY_GIT_ERROR
 from aider.run_cmd import run_cmd
 from aider.scrape import Scraper, install_playwright
 from aider.utils import is_image_file, run_fzf
-from aider.coders.bmad_coder import BMADCoder
+# from aider.coders.bmad_coder import BMADCoder
 
 from .dump import dump  # noqa: F401
 
@@ -1454,24 +1454,41 @@ class Commands:
 
     def cmd_bmad(self, args):
         """
-        Enter BMAD mode.
+        Enter BMAD mode and handle BMAD subcommands.
+        Subcommands: init, agent, task, workflow, status
         """
+        from aider.coders.bmad_coder import BMADCoder
         if not self.coder.repo:
             self.io.tool_error("BMAD mode requires a git repository.")
             return
 
         if not isinstance(self.coder, BMADCoder):
-            self.coder.abs_fnames = self.coder.get_in_chat_abs_fnames()
-            self.coder = BMADCoder(
-                self.coder.main_model,
-                self.coder.io,
-                self.coder.get_in_chat_abs_fnames(),
-                repo=self.coder.repo,
-                stream=self.coder.stream,
-                test_cmd=self.coder.test_cmd,
-            )
+            raise SwitchCoder(edit_format="bmad", placeholder=f"/bmad {args}".strip())
 
-        self.coder.run(args)
+        parts = args.strip().split()
+        if not parts:
+            if hasattr(self.coder, "show_bmad_status"):
+                self.coder.show_bmad_status()
+            else:
+                self.io.tool_error("Not in a valid BMAD coder state.")
+            return
+
+        subcommand = parts[0]
+        subcommand_args = " ".join(parts[1:])
+
+        if subcommand == "init":
+            self.coder.install_bmad_core()
+        elif subcommand == "agent":
+            self.coder.handle_agent_command(subcommand_args)
+        elif subcommand == "task":
+            self.coder.handle_task_command(subcommand_args)
+        elif subcommand == "workflow":
+            self.coder.handle_workflow_command(subcommand_args)
+        elif subcommand == "status":
+            self.coder.show_bmad_status()
+        else:
+            self.io.tool_error(f"Unknown BMAD subcommand: {subcommand}")
+            self.io.tool_output("Available subcommands: init, agent, task, workflow, status")
 
     def _generic_chat_command(self, args, edit_format, placeholder=None):
         if not args.strip():
