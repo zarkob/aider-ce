@@ -84,6 +84,14 @@ class BMADCoder(Coder):
             self._execute_create_doc(args[2:])
         elif task_name == "advanced-elicitation":
             self._execute_advanced_elicitation(args[2:])
+        elif task_name == "shard-doc":
+            self._execute_shard_doc(args[2:])
+        elif task_name == "create-next-story":
+            self._execute_create_next_story(args[2:])
+        elif task_name == "develop-story":
+            self._execute_develop_story(args[2:])
+        elif task_name == "review-story":
+            self._execute_review_story(args[2:])
         else:
             self.io.tool_error(f"Unknown task: {task_name}")
 
@@ -224,3 +232,117 @@ class BMADCoder(Coder):
                     f.write(content)
             else: # it's a directory
                 self.copy_bmad_assets(item_path, dst_path)
+
+    def _execute_shard_doc(self, args):
+        if len(args) == 0:
+            self.io.tool_error("Usage: /task shard-doc <document_path>")
+            return
+
+        doc_path = args[0]
+
+        if not os.path.exists(doc_path):
+            self.io.tool_error(f"Document not found: {doc_path}")
+            return
+
+        script_path = os.path.join(self.bmad_core_path, "tasks", "shard-doc.py")
+        result = self.run_cmd(f"python3 {script_path} {doc_path}")
+        self.io.tool_output(result)
+
+    def _execute_create_next_story(self, args):
+        script_path = os.path.join(self.bmad_core_path, "tasks", "create-next-story.py")
+        prompt = self.run_cmd(f"python3 {script_path}")
+
+        if not self.active_agent_name:
+            self.io.tool_error("No active agent. Please select one with /agent <agent_name>.")
+            return
+
+        if not self.active_agent_persona:
+            self.load_agent(self.active_agent_name)
+
+        full_prompt = f"{self.active_agent_persona}\n\n{prompt}"
+
+        self.io.tool_output("Generating next story...")
+        story_content = self.run(with_message=full_prompt, preproc=False)
+
+        if not story_content:
+            self.io.tool_error("Failed to generate story.")
+            return
+
+        stories_dir = "docs/stories"
+        os.makedirs(stories_dir, exist_ok=True)
+
+        story_num = 1
+        while os.path.exists(os.path.join(stories_dir, f"story-{story_num}.md")):
+            story_num += 1
+
+        story_filename = f"story-{story_num}.md"
+
+        with open(os.path.join(stories_dir, story_filename), 'w') as story_file:
+            story_file.write(story_content)
+
+        self.io.tool_output(f"Created story: {os.path.join(stories_dir, story_filename)}")
+
+    def _execute_develop_story(self, args):
+        if len(args) == 0:
+            self.io.tool_error("Usage: /task develop-story <story_path>")
+            return
+
+        story_path = args[0]
+
+        if not os.path.exists(story_path):
+            self.io.tool_error(f"Story not found: {story_path}")
+            return
+
+        script_path = os.path.join(self.bmad_core_path, "tasks", "develop-story.py")
+        prompt = self.run_cmd(f"python3 {script_path} {story_path}")
+
+        if not self.active_agent_name:
+            self.io.tool_error("No active agent. Please select one with /agent <agent_name>.")
+            return
+
+        if not self.active_agent_persona:
+            self.load_agent(self.active_agent_name)
+
+        full_prompt = f"{self.active_agent_persona}\n\n{prompt}"
+
+        self.io.tool_output("Generating code changes...")
+        code_changes = self.run(with_message=full_prompt, preproc=False)
+
+        if not code_changes:
+            self.io.tool_error("Failed to generate code changes.")
+            return
+
+        self.io.tool_output(code_changes)
+
+    def _execute_review_story(self, args):
+        if len(args) < 2:
+            self.io.tool_error("Usage: /task review-story <story_path> \"<code_changes>\"")
+            return
+
+        story_path = args[0]
+        code_changes = args[1]
+
+        if not os.path.exists(story_path):
+            self.io.tool_error(f"Story not found: {story_path}")
+            return
+
+        script_path = os.path.join(self.bmad_core_path, "tasks", "review-story.py")
+        prompt = self.run_cmd(f"python3 {script_path} {story_path} \"{code_changes}\"")
+
+        if not self.active_agent_name:
+            self.io.tool_error("No active agent. Please select one with /agent <agent_name>.")
+            return
+
+        if not self.active_agent_persona:
+            self.load_agent(self.active_agent_name)
+
+        full_prompt = f"{self.active_agent_persona}\n\n{prompt}"
+
+        self.io.tool_output("Reviewing code changes...")
+        feedback = self.run(with_message=full_prompt, preproc=False)
+
+        if not feedback:
+            self.io.tool_error("Failed to generate feedback.")
+            return
+
+        self.io.tool_output(feedback)
