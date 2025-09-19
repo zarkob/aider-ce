@@ -185,7 +185,9 @@ class AutoCompleter(Completer):
     def get_command_completions(self, document, complete_event, text, words):
         if len(words) == 1 and not text[-1].isspace():
             partial = words[0].lower()
-            candidates = [cmd for cmd in self.command_names if cmd.startswith(partial)]
+            if partial.startswith("/"):
+                partial = partial[1:]
+            candidates = [cmd for cmd in self.command_names if partial in cmd[1:]]
             for candidate in sorted(candidates):
                 yield Completion(candidate, start_position=-len(words[-1]))
             return
@@ -581,6 +583,7 @@ class InputOutput:
         abs_read_only_fnames=None,
         abs_read_only_stubs_fnames=None,
         edit_format=None,
+        coder=None,
     ):
         self.rule()
 
@@ -600,13 +603,20 @@ class InputOutput:
                 rel_fnames, rel_read_only_fnames, rel_read_only_stubs_fnames
             )
 
+        from aider.coders.bmad_coder import BMADCoder
+
         prompt_prefix = ""
 
-        if edit_format:
-            prompt_prefix += edit_format
-        if self.multiline_mode:
-            prompt_prefix += (" " if edit_format else "") + "multi"
-        prompt_prefix += "> "
+        if coder and isinstance(coder, BMADCoder) and coder.active_workflow:
+            agent = coder.active_agent_name or "No Agent"
+            phase = coder.active_phase or "No Phase"
+            prompt_prefix = f"(BMAD: {agent} / {phase}) > "
+        else:
+            if edit_format:
+                prompt_prefix += edit_format
+            if self.multiline_mode:
+                prompt_prefix += (" " if edit_format else "") + "multi"
+            prompt_prefix += "> "
 
         show += prompt_prefix
         self.prompt_prefix = prompt_prefix

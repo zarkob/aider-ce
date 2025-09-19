@@ -126,6 +126,43 @@ class TestInputOutput(unittest.TestCase):
             # Assert that the completions match expected results
             self.assertEqual(set(completion_texts), set(expected_completions))
 
+    def test_autocompleter_fuzzy_search(self):
+        commands = MagicMock()
+        commands.get_commands.return_value = ["/help", "/add", "/drop", "/history"]
+
+        autocompleter = AutoCompleter(
+            root="",
+            rel_fnames=[],
+            addable_rel_fnames=[],
+            commands=commands,
+            encoding="utf-8",
+        )
+
+        test_cases = [
+            # Input text, Expected completion texts
+            ("/h", ["/help", "/history"]),
+            ("/add", ["/add"]),
+            ("/drop", ["/drop"]),
+            ("/story", ["/history"]),
+            ("/ist", ["/history"]),
+        ]
+
+        for text, expected_completions in test_cases:
+            document = Document(text=text)
+            complete_event = CompleteEvent()
+            words = text.strip().split()
+
+            completions = list(
+                autocompleter.get_command_completions(
+                    document,
+                    complete_event,
+                    text,
+                    words,
+                )
+            )
+            completion_texts = [comp.text for comp in completions]
+            self.assertEqual(set(completion_texts), set(expected_completions))
+
     def test_autocompleter_with_non_existent_file(self):
         root = ""
         rel_fnames = ["non_existent_file.txt"]

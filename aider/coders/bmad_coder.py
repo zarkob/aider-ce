@@ -13,9 +13,13 @@ class BMADCoder(Coder):
         self.agents = {}
         self.active_agent_name = None
         self.active_agent_persona = None
+        self.active_workflow = None
+        self.active_phase = None
+        self.active_task = None
+        self.current_phase_index = 0
+        self.current_task_index = -1
 
-        # Ported from the BMAD installer
-        self.install_bmad_core()
+        # BMAD core is installed by running `/bmad init`
 
     def get_available_agents(self):
         agents_path = os.path.join(self.bmad_core_path, "agents")
@@ -41,18 +45,9 @@ class BMADCoder(Coder):
             self.agents[agent_name] = persona
             return persona
 
-    def preproc_user_input(self, inp):
-        if inp.startswith("/agent"):
-            self._handle_agent_command(inp)
-            return None
-        elif inp.startswith("/task"):
-            self._handle_task_command(inp)
-            return None
-        return super().preproc_user_input(inp)
-
-    def _handle_agent_command(self, inp):
-        args = inp.split()
-        if len(args) == 1:
+    def handle_agent_command(self, args_str):
+        args = args_str.split()
+        if len(args) == 0:
             agents = self.get_available_agents()
             if agents:
                 self.io.tool_output("Available agents:")
@@ -62,7 +57,7 @@ class BMADCoder(Coder):
                 self.io.tool_output("No agents found.")
             return
 
-        agent_name = args[1]
+        agent_name = args[0]
         persona = self.load_agent(agent_name)
 
         if persona:
@@ -72,28 +67,135 @@ class BMADCoder(Coder):
         else:
             self.io.tool_error(f"Agent '{agent_name}' not found.")
 
-    def _handle_task_command(self, inp):
-        args = inp.split()
-        if len(args) < 2:
-            self.io.tool_error("Usage: /task <task_name> [task_args...]")
+    def handle_task_command(self, args_str):
+        args = args_str.split()
+        if len(args) < 1:
+            self.io.tool_error("Usage: /bmad task <task_name> [task_args...]")
             return
 
-        task_name = args[1]
+        task_name = args[0]
+        task_args = args[1:]
 
-        if task_name == "create-doc":
-            self._execute_create_doc(args[2:])
-        elif task_name == "advanced-elicitation":
-            self._execute_advanced_elicitation(args[2:])
-        elif task_name == "shard-doc":
-            self._execute_shard_doc(args[2:])
-        elif task_name == "create-next-story":
-            self._execute_create_next_story(args[2:])
-        elif task_name == "develop-story":
-            self._execute_develop_story(args[2:])
-        elif task_name == "review-story":
-            self._execute_review_story(args[2:])
+        task_map = {
+            "create-doc": self._execute_create_doc,
+            "advanced-elicitation": self._execute_advanced_elicitation,
+            "shard-doc": self._execute_shard_doc,
+            "create-next-story": self._execute_create_next_story,
+            "develop-story": self._execute_develop_story,
+            "review-story": self._execute_review_story,
+        }
+
+        if task_name in task_map:
+            task_map[task_name](task_args)
         else:
             self.io.tool_error(f"Unknown task: {task_name}")
+
+    def show_bmad_status(self):
+        if not self.active_workflow:
+            self.io.tool_output("No active BMAD workflow.")
+            if self.active_agent_name:
+                self.io.tool_output(f"Current agent: {self.active_agent_name}")
+            return
+
+        self.io.tool_output("BMAD Status:")
+        self.io.tool_output(
+            "  Workflow:"
+            f" {self.active_workflow.get('workflow', {}).get('name', 'Unnamed Workflow')}"
+        )
+        self.io.tool_output(f"  Phase: {self.active_phase or 'N/A'}")
+        self.io.tool_output(f"  Task: {self.active_task or 'N/A'}")
+        self.io.tool_output(f"  Agent: {self.active_agent_name or 'N/A'}")
+
+        # Suggest the next step if a workflow is active
+        if self.active_task:
+            self.io.tool_output(
+                f"\nNext step: Run task '{self.active_task}' with agent"
+                f" '{self.active_agent_name}'."
+            )
+            self.io.placeholder = f"/bmad task {self.active_task} "
+
+    def handle_workflow_command(self, args_str):
+        try:
+            import yaml
+        except ImportError:
+            self.io.tool_error("Please install pyyaml `pip install pyyaml` to use workflows.")
+            return
+
+        workflow_dir = os.path.join(self.bmad_core_path, "workflows")
+        if not os.path.exists(workflow_dir):
+            self.io.tool_error("Workflows directory not found.")
+            return
+
+        args = args_str.split()
+        if len(args) == 0:
+            self.io.tool_output("Available workflows:")
+            for fname in os.listdir(workflow_dir):
+                if fname.endswith(".yml") or fname.endswith(".yaml"):
+                    self.io.tool_output(f"  - {fname.split('.')[0]}")
+            return
+
+        workflow_name = args[0]
+        workflow_file = os.path.join(workflow_dir, f"{workflow_name}.yml")
+        if not os.path.exists(workflow_file):
+            workflow_file = os.path.join(workflow_dir, f"{workflow_name}.yaml")
+            if not os.path.exists(workflow_file):
+                self.io.tool_error(f"Workflow '{workflow_name}' not found.")
+                return
+
+        with open(workflow_file, "r") as f:
+            try:
+                workflow_data = yaml.safe_load(f)
+            except yaml.YAMLError as e:
+                self.io.tool_error(f"Error parsing workflow file: {e}")
+                return
+
+        self.active_workflow = workflow_data
+        self.current_phase_index = 0
+        self.current_task_index = -1
+        self.io.tool_output(
+            f"Started workflow: {workflow_data.get('workflow', {}).get('name', workflow_name)}"
+        )
+        self.set_next_workflow_step()
+
+    def set_next_workflow_step(self):
+        if not self.active_workflow:
+            return
+
+        self.current_task_index += 1
+
+        sequence = self.active_workflow.get("workflow", {}).get("sequence", [])
+
+        if self.current_task_index >= len(sequence):
+            self.io.tool_output("Workflow completed.")
+            self.active_workflow = None
+            self.active_phase = None
+            self.active_task = None
+            self.active_agent_name = None
+            self.current_phase_index = 0
+            self.current_task_index = -1
+            self.io.placeholder = ""
+            return
+
+        next_step = sequence[self.current_task_index]
+        self.active_agent_name = next_step.get("agent")
+        self.load_agent(self.active_agent_name)
+
+        if "creates" in next_step:
+            self.active_task = f"create {next_step['creates']}"
+        elif "updates" in next_step:
+            self.active_task = f"update {next_step['updates']}"
+        elif "action" in next_step:
+            self.active_task = next_step["action"]
+        else:
+            self.active_task = "unnamed task"
+
+        self.active_phase = next_step.get("phase")
+
+        self.io.tool_output(
+            f"Next step: Run task '{self.active_task}' with agent"
+            f" '{self.active_agent_name}'."
+        )
+        self.io.placeholder = f"@{self.active_agent_name} {self.active_task}"
 
     def _execute_advanced_elicitation(self, args):
         if not self.active_agent_name:
@@ -131,6 +233,7 @@ class BMADCoder(Coder):
 
         self.io.tool_output(f"Starting advanced elicitation for {doc_path} with agent {self.active_agent_name}...")
         self.run(with_message=prompt, preproc=False)
+        self.set_next_workflow_step()
 
     def _execute_create_doc(self, args):
         if not self.active_agent_name:
@@ -185,14 +288,20 @@ class BMADCoder(Coder):
 
         self.add_rel_fname(os.path.relpath(output_path, self.root))
         self.io.tool_output(f"Created document {output_path} and added it to the chat.")
+        self.set_next_workflow_step()
 
 
     def install_bmad_core(self):
+        prompt = "Install the .bmad-core directory with templates and tasks?"
         if os.path.exists(self.bmad_core_path):
+            prompt = ".bmad-core is already installed. Reinstall and overwrite?"
+
+        if not self.io.confirm_ask(prompt):
             return
 
-        if not self.io.confirm_ask("No .bmad-core directory found. Install it now?"):
-            return
+        if os.path.exists(self.bmad_core_path):
+            import shutil
+            shutil.rmtree(self.bmad_core_path)
 
         self.io.tool_output("Installing .bmad-core...")
         os.makedirs(self.bmad_core_path, exist_ok=True)
@@ -247,6 +356,7 @@ class BMADCoder(Coder):
         script_path = os.path.join(self.bmad_core_path, "tasks", "shard-doc.py")
         result = self.run_cmd(f"python3 {script_path} {doc_path}")
         self.io.tool_output(result)
+        self.set_next_workflow_step()
 
     def _execute_create_next_story(self, args):
         script_path = os.path.join(self.bmad_core_path, "tasks", "create-next-story.py")
@@ -281,6 +391,7 @@ class BMADCoder(Coder):
             story_file.write(story_content)
 
         self.io.tool_output(f"Created story: {os.path.join(stories_dir, story_filename)}")
+        self.set_next_workflow_step()
 
     def _execute_develop_story(self, args):
         if len(args) == 0:
@@ -313,6 +424,7 @@ class BMADCoder(Coder):
             return
 
         self.io.tool_output(code_changes)
+        self.set_next_workflow_step()
 
     def _execute_review_story(self, args):
         if len(args) < 2:
@@ -346,3 +458,4 @@ class BMADCoder(Coder):
             return
 
         self.io.tool_output(feedback)
+        self.set_next_workflow_step()
