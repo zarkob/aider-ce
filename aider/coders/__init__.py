@@ -12,11 +12,13 @@ from .navigator_coder import NavigatorCoder
 from .patch_coder import PatchCoder
 from .udiff_coder import UnifiedDiffCoder
 from .udiff_simple import UnifiedDiffSimpleCoder
+from .bmad_coder import BMADCoder
 from .wholefile_coder import WholeFileCoder
 
 # from .single_wholefile_func_coder import SingleWholeFileFunctionCoder
 
 __all__ = [
+    BMADCoder,
     HelpCoder,
     AskCoder,
     Coder,

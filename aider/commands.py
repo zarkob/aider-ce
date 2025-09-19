@@ -1451,6 +1451,10 @@ class Commands:
 
         return self._generic_chat_command(args, "navigator", placeholder=args.strip() or None)
 
+    def cmd_bmad(self, args):
+        "Enter BMAD mode to structure your work according to the BMAD methodology."
+        return self._generic_chat_command(args, "bmad", placeholder=args.strip() or None)
+
     def _generic_chat_command(self, args, edit_format, placeholder=None):
         if not args.strip():
             # Switch to the corresponding chat mode if no args provided

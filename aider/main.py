@@ -164,6 +164,9 @@ def check_gitignore(git_root, io, ask=True):
         if not repo.ignored(".aider"):
             patterns_to_add.append(".aider*")
 
+        if not repo.ignored(".bmad-core"):
+            patterns_to_add.append(".bmad-core")
+
         env_path = Path(git_root) / ".env"
         if env_path.exists() and not repo.ignored(".env"):
             patterns_to_add.append(".env")
