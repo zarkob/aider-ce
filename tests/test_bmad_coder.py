@@ -18,7 +18,7 @@ class TestBMADCoder(unittest.TestCase):
              patch("os.path.exists") as mock_exists:
             mock_listdir.return_value = ["analyst.md", "pm.md", "tech_lead.md", "other.txt"]
             mock_exists.return_value = True
-            self.coder._handle_agent_command("/agent")
+            self.coder.handle_agent_command("")
             self.mock_io.tool_output.assert_any_call("Available agents:")
             self.mock_io.tool_output.assert_any_call("  analyst")
             self.mock_io.tool_output.assert_any_call("  pm")
@@ -34,7 +34,7 @@ class TestBMADCoder(unittest.TestCase):
              patch("os.path.exists") as mock_exists:
             mock_exists.return_value = True
 
-            self.coder._handle_agent_command(f"/agent {agent_name}")
+            self.coder.handle_agent_command(agent_name)
 
             self.assertEqual(self.coder.active_agent_name, agent_name)
             self.assertEqual(self.coder.active_agent_persona, persona_content)
@@ -44,7 +44,7 @@ class TestBMADCoder(unittest.TestCase):
         agent_name = "nonexistent_agent"
         with patch("os.path.exists") as mock_exists:
             mock_exists.return_value = False
-            self.coder._handle_agent_command(f"/agent {agent_name}")
+            self.coder.handle_agent_command(agent_name)
             self.mock_io.tool_error.assert_called_with(f"Agent '{agent_name}' not found.")
 
     def test_execute_create_doc_success(self):

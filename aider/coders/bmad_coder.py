@@ -1,9 +1,12 @@
 import os
 import importlib.resources
 from aider.coders.base_coder import Coder
+from .bmad_prompts import BMADPrompts
+
 
 class BMADCoder(Coder):
     edit_format = "bmad"
+    gpt_prompts = BMADPrompts()
 
     def __init__(self, main_model, io, **kwargs):
         super().__init__(main_model, io, **kwargs)
