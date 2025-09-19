@@ -23,6 +23,7 @@ from aider.repo import ANY_GIT_ERROR
 from aider.run_cmd import run_cmd
 from aider.scrape import Scraper, install_playwright
 from aider.utils import is_image_file, run_fzf
+from aider.coders.bmad_coder import BMADCoder
 
 from .dump import dump  # noqa: F401
 
@@ -1452,8 +1453,25 @@ class Commands:
         return self._generic_chat_command(args, "navigator", placeholder=args.strip() or None)
 
     def cmd_bmad(self, args):
-        "Enter BMAD mode to structure your work according to the BMAD methodology."
-        return self._generic_chat_command(args, "bmad", placeholder=args.strip() or None)
+        """
+        Enter BMAD mode.
+        """
+        if not self.coder.repo:
+            self.io.tool_error("BMAD mode requires a git repository.")
+            return
+
+        if not isinstance(self.coder, BMADCoder):
+            self.coder.abs_fnames = self.coder.get_in_chat_abs_fnames()
+            self.coder = BMADCoder(
+                self.coder.main_model,
+                self.coder.io,
+                self.coder.get_in_chat_abs_fnames(),
+                repo=self.coder.repo,
+                stream=self.coder.stream,
+                test_cmd=self.coder.test_cmd,
+            )
+
+        self.coder.run(args)
 
     def _generic_chat_command(self, args, edit_format, placeholder=None):
         if not args.strip():
